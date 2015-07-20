@@ -259,8 +259,10 @@ private:
     AP_Camera camera {&relay};
 #endif
 
+#if OPTFLOW == ENABLED
     // Optical flow sensor
     OpticalFlow optflow;
+#endif
 
     // Rally Ponints
     AP_Rally rally {ahrs};
@@ -672,7 +674,6 @@ private:
     void Log_Write_Attitude(void);
     void Log_Write_Performance();
     void Log_Write_Startup(uint8_t type);
-    void Log_Write_EntireMission();
     void Log_Write_Control_Tuning();
     void Log_Write_TECS_Tuning(void);
     void Log_Write_Nav_Tuning();
@@ -686,6 +687,7 @@ private:
     void Log_Write_RC(void);
     void Log_Write_Baro(void);
     void Log_Write_Airspeed(void);
+    void Log_Write_Home_And_Origin();
     void Log_Read(uint16_t log_num, int16_t start_page, int16_t end_page);
     void start_logging();
     void load_parameters(void);
@@ -906,7 +908,6 @@ private:
     void do_digicam_control(const AP_Mission::Mission_Command& cmd);
     bool start_command_callback(const AP_Mission::Mission_Command &cmd);
     bool verify_command_callback(const AP_Mission::Mission_Command& cmd);
-    void Log_Write_Cmd(const AP_Mission::Mission_Command &cmd);
     void print_flight_mode(AP_HAL::BetterStream *port, uint8_t mode);
     void run_cli(AP_HAL::UARTDriver *port);
     void log_init();

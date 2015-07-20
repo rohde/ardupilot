@@ -80,7 +80,7 @@
 #include <AP_Airspeed.h>        // needed for AHRS build
 #include <AP_Vehicle.h>         // needed for AHRS build
 #include <AP_InertialNav.h>     // ArduPilot Mega inertial navigation library
-#include <AC_WPNav.h>     		// ArduCopter waypoint navigation library
+#include <AC_WPNav.h>           // ArduCopter waypoint navigation library
 #include <AC_Circle.h>          // circle navigation library
 #include <AP_Declination.h>     // ArduPilot Mega Declination Helper Library
 #include <AC_Fence.h>           // Arducopter Fence library
@@ -95,10 +95,10 @@
 #include <AC_Sprayer.h>         // crop sprayer library
 #endif
 #if EPM_ENABLED == ENABLED
-#include <AP_EPM.h>				// EPM cargo gripper stuff
+#include <AP_EPM.h>             // EPM cargo gripper stuff
 #endif
 #if PARACHUTE == ENABLED
-#include <AP_Parachute.h>		// Parachute release library
+#include <AP_Parachute.h>       // Parachute release library
 #endif
 #include <AP_LandingGear.h>     // Landing Gear library
 #include <AP_Terrain.h>
@@ -270,6 +270,12 @@ private:
 
         uint32_t last_heartbeat_ms;      // the time when the last HEARTBEAT message arrived from a GCS - used for triggering gcs failsafe
     } failsafe;
+
+    // sensor health for logging
+    struct {
+        uint8_t baro        : 1;    // true if baro is healthy
+        uint8_t compass     : 1;    // true if compass is healthy
+    } sensor_health;
 
     // Motor Output
 #if FRAME_CONFIG == QUAD_FRAME
@@ -576,6 +582,7 @@ private:
     void gcs_data_stream_send(void);
     void gcs_check_input(void);
     void gcs_send_text_P(gcs_severity severity, const prog_char_t *str);
+    void gcs_send_mission_item_reached(uint16_t seq);
     void do_erase_logs(void);
     void Log_Write_AutoTune(uint8_t axis, uint8_t tune_step, float meas_target, float meas_min, float meas_max, float new_gain_rp, float new_gain_rd, float new_gain_sp, float new_ddt);
     void Log_Write_AutoTuneDetails(float angle_cd, float rate_cds);
@@ -588,7 +595,6 @@ private:
     void Log_Write_Rate();
     void Log_Write_MotBatt();
     void Log_Write_Startup();
-    void Log_Write_EntireMission();
     void Log_Write_Event(uint8_t id);
     void Log_Write_Data(uint8_t id, int32_t value);
     void Log_Write_Data(uint8_t id, uint32_t value);
@@ -598,6 +604,8 @@ private:
     void Log_Write_Error(uint8_t sub_system, uint8_t error_code);
     void Log_Write_Baro(void);
     void Log_Write_Parameter_Tuning(uint8_t param, float tuning_val, int16_t control_in, int16_t tune_low, int16_t tune_high);
+    void Log_Write_Home_And_Origin();
+    void Log_Sensor_Health();
 #if FRAME_CONFIG == HELI_FRAME
     void Log_Write_Heli(void);
 #endif
@@ -891,7 +899,6 @@ private:
     void print_hit_enter();
     void tuning();
     void gcs_send_text_fmt(const prog_char_t *fmt, ...);
-    void Log_Write_Cmd(const AP_Mission::Mission_Command &cmd);
     bool start_command(const AP_Mission::Mission_Command& cmd);
     bool verify_command(const AP_Mission::Mission_Command& cmd);
 

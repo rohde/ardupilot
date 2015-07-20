@@ -769,6 +769,12 @@ private:
     uint32_t touchdownExpectedSet_ms; // system time at which expectGndEffectTouchdown was set
     float meaHgtAtTakeOff;            // height measured at commencement of takeoff
 
+    // monitoring IMU quality
+    uint32_t lastClipCount1;    // previous value of clip counter for IMU 1
+    uint32_t lastClipCount2;    // previous value of clip counter for IMU 2
+    float clipRateFilt1;        // filtered clip rate for IMU 1
+    float clipRateFilt2;        // filtered clip rate for IMU 2
+
     // states held by optical flow fusion across time steps
     // optical flow X,Y motion compensated rate measurements are fused across two time steps
     // to level computational load as this can be an expensive operation
@@ -831,6 +837,9 @@ private:
     
     // should we assume zero sideslip?
     bool assume_zero_sideslip(void) const;
+
+    // vehicle specific initial gyro bias uncertainty
+    float InitialGyroBiasUncertainty(void) const;
 };
 
 #if CONFIG_HAL_BOARD != HAL_BOARD_PX4 && CONFIG_HAL_BOARD != HAL_BOARD_VRBRAIN

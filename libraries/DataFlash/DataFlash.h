@@ -14,6 +14,7 @@
 #include <AP_Baro.h>
 #include <AP_AHRS.h>
 #include <AP_Vehicle.h>
+#include <AP_Mission.h>
 #include "../AP_Airspeed/AP_Airspeed.h"
 #include "../AP_BattMonitor/AP_BattMonitor.h"
 #include <stdint.h>
@@ -62,6 +63,7 @@ public:
     uint16_t StartNewLog(void);
     void AddLogFormats(const struct LogStructure *structures, uint8_t num_types);
     void EnableWrites(bool enable);
+    void Log_Write_SysInfo(const prog_char_t *firmware_string);
     void Log_Write_Format(const struct LogStructure *structure);
     void Log_Write_Parameter(const char *name, float value);
     void Log_Write_GPS(const AP_GPS &gps, uint8_t instance, int32_t relative_alt);
@@ -90,6 +92,11 @@ public:
     void Log_Write_Mode(uint8_t mode);
     void Log_Write_Parameters(void);
 
+    void Log_Write_EntireMission(const AP_Mission &mission);
+    void Log_Write_Mission_Cmd(const AP_Mission &mission,
+                               const AP_Mission::Mission_Command &cmd);
+    void Log_Write_Origin(uint8_t origin_type, const Location &loc);
+
     // This structure provides information on the internal member data of a PID for logging purposes
     struct PID_Info {
         float desired;
@@ -103,6 +110,11 @@ public:
     void Log_Write_PID(uint8_t msg_type, const PID_Info &info);
 
     bool logging_started(void);
+
+#if CONFIG_HAL_BOARD == HAL_BOARD_SITL || CONFIG_HAL_BOARD == HAL_BOARD_LINUX
+    // currently only DataFlash_File support this:
+    void flush(void);
+#endif
 
 protected:
     void Log_Fill_Format(const struct LogStructure *structure, struct log_Format &pkt);
@@ -536,6 +548,33 @@ struct PACKED log_GPS_RAW {
     uint8_t lli;
 };
 
+struct PACKED log_GPS_RAWH {
+    LOG_PACKET_HEADER;
+    uint64_t time_us;
+    double rcvTow;
+    uint16_t week;
+    int8_t leapS;
+    uint8_t numMeas;
+    uint8_t recStat;
+};
+
+struct PACKED log_GPS_RAWS {
+    LOG_PACKET_HEADER;
+    uint64_t time_us;
+    double prMes;
+    double cpMes;
+    float doMes;
+    uint8_t gnssId;
+    uint8_t svId;
+    uint8_t freqId;
+    uint16_t locktime;
+    uint8_t cno;
+    uint8_t prStdev;
+    uint8_t cpStdev;
+    uint8_t doStdev;
+    uint8_t trkStat;
+};
+
 struct PACKED log_Esc {
     LOG_PACKET_HEADER;
     uint64_t time_us;     
@@ -567,6 +606,15 @@ struct PACKED log_GYRO {
     uint64_t time_us;
     uint64_t sample_us;
     float GyrX, GyrY, GyrZ;
+};
+
+struct PACKED log_ORGN {
+    LOG_PACKET_HEADER;
+    uint64_t time_us;
+    uint8_t origin_type;
+    int32_t latitude;
+    int32_t longitude;
+    int32_t altitude;
 };
 
 /*
@@ -661,6 +709,10 @@ Format characters in the format string for binary log messages
       "UBX3", "QBfff", "TimeUS,Instance,hAcc,vAcc,sAcc" }, \
     { LOG_GPS_RAW_MSG, sizeof(log_GPS_RAW), \
       "GRAW", "QIHBBddfBbB", "TimeUS,WkMS,Week,numSV,sv,cpMes,prMes,doMes,mesQI,cno,lli" }, \
+    { LOG_GPS_RAWH_MSG, sizeof(log_GPS_RAWH), \
+      "GRXH", "QdHbBB", "TimeUS,rcvTime,week,leapS,numMeas,recStat" }, \
+    { LOG_GPS_RAWS_MSG, sizeof(log_GPS_RAWS), \
+      "GRXS", "QddfBBBHBBBBB", "TimeUS,prMes,cpMes,doMes,gnss,sv,freq,lock,cno,prD,cpD,doD,trk" }, \
     { LOG_ESC1_MSG, sizeof(log_Esc), \
       "ESC1",  "Qcccc", "TimeUS,RPM,Volt,Curr,Temp" }, \
     { LOG_ESC2_MSG, sizeof(log_Esc), \
@@ -714,7 +766,9 @@ Format characters in the format string for binary log messages
     { LOG_IMUDT2_MSG, sizeof(log_IMUDT), \
       "IMT2","Qffffffff","TimeUS,DelT,DelvT,DelAX,DelAY,DelAZ,DelVX,DelVY,DelVZ" }, \
     { LOG_IMUDT3_MSG, sizeof(log_IMUDT), \
-      "IMT3","Qffffffff","TimeUS,DelT,DelvT,DelAX,DelAY,DelAZ,DelVX,DelVY,DelVZ" }
+      "IMT3","Qffffffff","TimeUS,DelT,DelvT,DelAX,DelAY,DelAZ,DelVX,DelVY,DelVZ" }, \
+    { LOG_ORGN_MSG, sizeof(log_ORGN), \
+      "ORGN","QBLLe","TimeUS,Type,Lat,Lng,Alt" }
 
 #if HAL_CPU_CLASS >= HAL_CPU_CLASS_75
 #define LOG_COMMON_STRUCTURES LOG_BASE_STRUCTURES, LOG_EXTRA_STRUCTURES
@@ -770,6 +824,8 @@ enum LogMessages {
     LOG_COMPASS3_MSG,
     LOG_MODE_MSG,
     LOG_GPS_RAW_MSG,
+    LOG_GPS_RAWH_MSG,
+    LOG_GPS_RAWS_MSG,
     LOG_ACC1_MSG,
     LOG_ACC2_MSG,
     LOG_ACC3_MSG,
@@ -785,7 +841,13 @@ enum LogMessages {
     LOG_VIBE_MSG,
     LOG_IMUDT_MSG,
     LOG_IMUDT2_MSG,
-    LOG_IMUDT3_MSG
+    LOG_IMUDT3_MSG,
+    LOG_ORGN_MSG
+};
+
+enum LogOriginType {
+    ekf_origin = 0,
+    ahrs_home = 1
 };
 
 // message types 200 to 210 reversed for GPS driver use

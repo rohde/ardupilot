@@ -353,18 +353,11 @@ void Copter::Log_Write_Performance()
     DataFlash.WriteBlock(&pkt, sizeof(pkt));
 }
 
-// Write a mission command. Total length : 36 bytes
-void Copter::Log_Write_Cmd(const AP_Mission::Mission_Command &cmd)
-{
-    mavlink_mission_item_t mav_cmd = {};
-    AP_Mission::mission_cmd_to_mavlink(cmd,mav_cmd);
-    DataFlash.Log_Write_MavCmd(mission.num_commands(),mav_cmd);
-}
-
 // Write an attitude packet
 void Copter::Log_Write_Attitude()
 {
     Vector3f targets = attitude_control.angle_ef_targets();
+    targets.z = wrap_360_cd_float(targets.z);
     DataFlash.Log_Write_Attitude(ahrs, targets);
 
  #if OPTFLOW == ENABLED
@@ -451,31 +444,11 @@ struct PACKED log_Startup {
 // Write Startup packet
 void Copter::Log_Write_Startup()
 {
-    // Write all current parameters
-    DataFlash.Log_Write_Parameters();
-
     struct log_Startup pkt = {
         LOG_PACKET_HEADER_INIT(LOG_STARTUP_MSG),
         time_us         : hal.scheduler->micros64()
     };
     DataFlash.WriteBlock(&pkt, sizeof(pkt));
-
-    // write all commands to the dataflash as well
-    if (should_log(MASK_LOG_CMD)) {
-        Log_Write_EntireMission();
-    }
-}
-
-void Copter::Log_Write_EntireMission()
-{
-    DataFlash.Log_Write_Message_P(PSTR("New mission"));
-
-    AP_Mission::Mission_Command cmd;
-    for (uint16_t i = 0; i < mission.num_commands(); i++) {
-        if (mission.read_cmd_from_storage(i,cmd)) {
-            Log_Write_Cmd(cmd);
-        }
-    }
 }
 
 struct PACKED log_Event {
@@ -654,6 +627,37 @@ void Copter::Log_Write_Parameter_Tuning(uint8_t param, float tuning_val, int16_t
     DataFlash.WriteBlock(&pkt_tune, sizeof(pkt_tune));
 }
 
+// log EKF origin and ahrs home to dataflash
+void Copter::Log_Write_Home_And_Origin()
+{
+    // log ekf origin if set
+    Location ekf_orig;
+    if (ahrs.get_NavEKF_const().getOriginLLH(ekf_orig)) {
+        DataFlash.Log_Write_Origin(LogOriginType::ekf_origin, ekf_orig);
+    }
+
+    // log ahrs home if set
+    if (ap.home_state != HOME_UNSET) {
+        DataFlash.Log_Write_Origin(LogOriginType::ahrs_home, ahrs.get_home());
+    }
+}
+
+// logs when baro or compass becomes unhealthy
+void Copter::Log_Sensor_Health()
+{
+    // check baro
+    if (sensor_health.baro != barometer.healthy()) {
+        sensor_health.baro = barometer.healthy();
+        Log_Write_Error(ERROR_SUBSYSTEM_BARO, (sensor_health.baro ? ERROR_CODE_ERROR_RESOLVED : ERROR_CODE_UNHEALTHY));
+    }
+
+    // check compass
+    if (sensor_health.compass != compass.healthy()) {
+        sensor_health.compass = compass.healthy();
+        Log_Write_Error(ERROR_SUBSYSTEM_COMPASS, (sensor_health.compass ? ERROR_CODE_ERROR_RESOLVED : ERROR_CODE_UNHEALTHY));
+    }
+}
+
 struct PACKED log_Heli {
     LOG_PACKET_HEADER;
     uint64_t time_us;
@@ -742,19 +746,15 @@ void Copter::start_logging()
             ap.logging_started = true;
             in_mavlink_delay = true;
             DataFlash.StartNewLog();
+            DataFlash.Log_Write_SysInfo(PSTR(FIRMWARE_STRING));
             in_mavlink_delay = false;
-            DataFlash.Log_Write_Message_P(PSTR(FIRMWARE_STRING));
 
-#if defined(PX4_GIT_VERSION) && defined(NUTTX_GIT_VERSION)
-            DataFlash.Log_Write_Message_P(PSTR("PX4: " PX4_GIT_VERSION " NuttX: " NUTTX_GIT_VERSION));
-#endif
-
-            // write system identifier as well if available
-            char sysid[40];
-            if (hal.util->get_system_id(sysid)) {
-                DataFlash.Log_Write_Message(sysid);
-            }
             DataFlash.Log_Write_Message_P(PSTR("Frame: " FRAME_CONFIG_STRING));
+
+            // write mission commands
+            if (MASK_LOG_CMD & g.log_bitmask) {
+                DataFlash.Log_Write_EntireMission(mission);
+            }
 
             Log_Write_Startup();
 
@@ -768,7 +768,7 @@ void Copter::start_logging()
 
 void Copter::log_init(void)
 {
-    DataFlash.Init(log_structure, sizeof(log_structure)/sizeof(log_structure[0]));
+    DataFlash.Init(log_structure, ARRAY_SIZE(log_structure));
     if (!DataFlash.CardInserted()) {
         gcs_send_text_P(SEVERITY_HIGH, PSTR("No dataflash inserted"));
         g.log_bitmask.set(0);
